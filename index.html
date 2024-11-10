@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="style.css" />
+    <title>Image color processor</title>
+  </head>
+
+  <body>
+    <div class="backdrop hidden">
+      <div class="loader"></div>
+    </div>
+    <h1>Image Color Processor</h1>
+
+    <h3>
+      Upload your image using the button below, then click submit to get a
+      summary of the most dominant colors in your image!
+    </h3>
+
+    <p>*Please note only <b>PNG, JPG, JPEG</b> formats are supported</p>
+
+    <form id="uploadImageForm">
+      <div class="formGroup">
+        <input
+          type="file"
+          name="image"
+          id="btnUploadImage"
+          accept="image/png, image/jpeg, image/jpg"
+        />
+      </div>
+      <div class="formGroup">
+        <button disabled type="submit">Get results</button>
+      </div>
+    </form>
+
+    <div id="result" class="hidden"></div>
+    <img id="uploadDisplayImg" />
+  </body>
+</html>
+
+<script
+  src="https://cdnjs.cloudflare.com/ajax/libs/blueimp-md5/2.19.0/js/md5.min.js"
+  integrity="sha512-8pbzenDolL1l5OPSsoURCx9TEdMFTaeFipASVrMYKhuYtly+k3tcsQYliOEKTmuB1t7yuzAiVo+yd7SJz+ijFQ=="
+  crossorigin="anonymous"
+  referrerpolicy="no-referrer"
+></script>
+
+<script>
+  const form = document.querySelector("#uploadImageForm");
+  const resultContainer = document.querySelector("#result");
+  const displayImg = document.querySelector("#uploadDisplayImg");
+  const uploadInput = document.querySelector("#btnUploadImage");
+  const btnSubmit = document.querySelector("button[type=submit]");
+
+  uploadInput.addEventListener("change", (ev) => {
+    btnSubmit.removeAttribute("disabled");
+  });
+
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+
+    const formData = new FormData(form);
+    const image = formData.get("image");
+    const allowedFileTypes = ["image/jpg", "image/jpeg", "image/png"];
+    let res;
+
+    if (!allowedFileTypes.includes(image.type)) return alert("File type not supported");
+
+    toggleLoader();
+
+    try {
+      res = await getImageColors(image);
+
+      if (res.ok) {
+        res = await res.json();
+        toggleLoader();
+        displayResults(res, image);
+      }
+
+      if (res.status === "error") {
+        toggleLoader();
+        alert("An error has occured during the upload of the file, please try again later");
+      }
+    } catch (error) {
+      toggleLoader();
+      alert("Failed getting results, please try again later");
+      
+    }
+  });
+
+  async function getImageColors(image) {
+    let res;
+    const chunkSize = 1000000;
+    const numberOfChunks = image.size / chunkSize;
+    let currChunkNumber = 1;
+    
+    for (let start = 0; start < image.size; start += chunkSize) {
+      const chunk = image.slice(start, start + chunkSize);
+      const checkSum = await getCheckSum(chunk);
+      const formData = new FormData();
+
+      formData.append("chunk", chunk);
+      formData.append("currChunkNumber", currChunkNumber++);
+      formData.append("numberOfChunks", numberOfChunks);
+      formData.append("filename", image.name);
+      formData.append("check", checkSum);
+
+      res = await fetch("server.php?action=getImageColors", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (res.status === "error") throw new Error('Image upload failed');
+    }
+
+    return res;
+  }
+
+  function displayResults(res, image) {
+    const numberOfColors = Object.keys(res).length;
+    const title = `<h2>Here are the top ${numberOfColors} dominant colors in your photo</h2>`;
+    let colorList = "<ul>";
+
+    for (const color in res) {
+      colorList += `<li>rgb(${color}): ${res[color]}% <div style="background: rgb(${color});border: 3px solid;display: inline-block;width: 10px;height: 10px;margin-inline-start: 5px;"></div></li>`;
+    }
+    colorList += "</ul>";
+
+    if (FileReader) {
+      const fr = new FileReader();
+      fr.onload = () => (displayImg.src = fr.result);
+      fr.readAsDataURL(image);
+    }
+
+    resultContainer.innerHTML = `${title} ${colorList}`;
+    resultContainer.classList.remove("hidden");
+  }
+
+  async function getCheckSum(dataChunk) {
+    let hexChunk = Array.from(new Uint8Array(await dataChunk.arrayBuffer()))
+        .map(byte => byte.toString(16).padStart(2, '0'))
+        .join('');
+
+    let checkSum = 0;
+
+    for (let i = 0; i < hexChunk.length; i++) {
+        checkSum += hexChunk.charCodeAt(i);
+    }
+
+    return checkSum;
+  }
+
+
+  function toggleLoader() {
+    const loader = document.querySelector(".backdrop");
+    loader.classList.toggle("hidden");
+  }
+</script>
